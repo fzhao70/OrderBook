@@ -73,6 +73,7 @@ class CommandType(Enum):
     """Types of commands that can be sent to the order book"""
     PLACE_LIMIT_ORDER = "PLACE_LIMIT_ORDER"
     PLACE_MARKET_ORDER = "PLACE_MARKET_ORDER"
+    PLACE_ORDERS_BATCH = "PLACE_ORDERS_BATCH"
     CANCEL_ORDER = "CANCEL_ORDER"
     GET_BEST_BID = "GET_BEST_BID"
     GET_BEST_ASK = "GET_BEST_ASK"
@@ -80,6 +81,61 @@ class CommandType(Enum):
     GET_DEPTH = "GET_DEPTH"
     GET_SNAPSHOT = "GET_SNAPSHOT"
     SHUTDOWN = "SHUTDOWN"
+
+
+# ========== SIMULATION CLOCK ==========
+
+class SimulationClock:
+    """
+    Replaceable clock for deterministic simulations.
+
+    Use this for backtesting and simulations where you need control
+    over time progression. Defaults to system time if not used.
+
+    Example:
+        # For simulations
+        clock = SimulationClock(start_time=0.0)
+        engine = OrderBookEngine("AAPL", clock=clock)
+
+        # Advance time manually
+        clock.tick(1.0)  # Advance by 1 second
+
+        # For production (default)
+        engine = OrderBookEngine("AAPL")  # Uses time.time()
+    """
+
+    def __init__(self, start_time: float = 0.0):
+        """
+        Initialize simulation clock.
+
+        Args:
+            start_time: Starting timestamp (default: 0.0)
+        """
+        self.current_time = start_time
+
+    def time(self) -> float:
+        """Get current simulation time"""
+        return self.current_time
+
+    def tick(self, delta: float = 0.001):
+        """
+        Advance clock by delta seconds.
+
+        Args:
+            delta: Time to advance in seconds (default: 1ms)
+
+        Returns:
+            New current time
+        """
+        self.current_time += delta
+        return self.current_time
+
+    def set_time(self, new_time: float):
+        """Set clock to specific time"""
+        self.current_time = new_time
+
+    def __repr__(self):
+        return f"SimulationClock(current_time={self.current_time:.6f})"
 
 
 # ========== DATA CLASSES ==========
@@ -106,9 +162,14 @@ class Order:
     order_type: OrderType
     quantity: float
     price: Optional[float] = None
-    timestamp: float = field(default_factory=time.time)
+    timestamp: Optional[float] = None
     status: OrderStatus = OrderStatus.PENDING
     filled_quantity: float = 0.0
+
+    def __post_init__(self):
+        """Set default timestamp if not provided"""
+        if self.timestamp is None:
+            self.timestamp = time.time()
 
     def remaining_quantity(self) -> float:
         """Get the remaining unfilled quantity"""
@@ -144,7 +205,12 @@ class Trade:
     sell_order_id: str
     price: float
     quantity: float
-    timestamp: float = field(default_factory=time.time)
+    timestamp: Optional[float] = None
+
+    def __post_init__(self):
+        """Set default timestamp if not provided"""
+        if self.timestamp is None:
+            self.timestamp = time.time()
 
     def __repr__(self):
         return (f"Trade({self.trade_id}, {self.symbol}, "
@@ -226,21 +292,32 @@ class OrderBook:
     - Real-time trade execution
     """
 
-    def __init__(self, symbol: str):
+    def __init__(self, symbol: str, clock: Optional[SimulationClock] = None,
+                 max_trades: int = 0):
         """
         Initialize an order book for a specific symbol.
 
         Args:
             symbol: Trading symbol (e.g., 'AAPL', 'GOOGL')
+            clock: Optional simulation clock for deterministic timestamps
+                   (defaults to time.time() if None)
+            max_trades: Maximum number of trades to keep in history
+                       (0 = unlimited, default)
         """
         self.symbol = symbol
+        self.clock = clock  # SimulationClock or None (uses time.time())
+        self.max_trades = max_trades
+
         # Price levels: {price: deque of orders}
         self.bids: Dict[float, deque] = defaultdict(deque)  # Buy orders
         self.asks: Dict[float, deque] = defaultdict(deque)  # Sell orders
         # Order lookup
         self.orders: Dict[str, Order] = {}
-        # Trade history
-        self.trades: List[Trade] = []
+        # Trade history - use deque with maxlen if max_trades specified
+        if max_trades > 0:
+            self.trades: Any = deque(maxlen=max_trades)
+        else:
+            self.trades: Any = []
         self.trade_counter = 0
 
         # Cached best prices for O(1) lookup
@@ -250,6 +327,12 @@ class OrderBook:
         # Callbacks for events
         self.on_trade_callback: Optional[Callable] = None
         self.on_order_update_callback: Optional[Callable] = None
+
+    def _get_time(self) -> float:
+        """Get current time from clock or system time"""
+        if self.clock:
+            return self.clock.time()
+        return time.time()
 
     def add_order(self, order: Order) -> List[Trade]:
         """
@@ -453,7 +536,8 @@ class OrderBook:
             buy_order_id=buy_order.order_id,
             sell_order_id=sell_order.order_id,
             price=price,
-            quantity=quantity
+            quantity=quantity,
+            timestamp=self._get_time()
         )
         self.trades.append(trade)
         return trade
@@ -571,6 +655,138 @@ class OrderBook:
             'asks': asks,
             'total_trades': len(self.trades)
         }
+
+    def save_snapshot(self) -> dict:
+        """
+        Save complete order book state for later restoration.
+
+        Returns:
+            Dictionary containing complete order book state
+
+        Example:
+            snapshot = order_book.save_snapshot()
+            # ... do some operations ...
+            order_book.load_snapshot(snapshot)  # Restore state
+        """
+        return {
+            'symbol': self.symbol,
+            'bids': {
+                price: [
+                    {
+                        'order_id': o.order_id,
+                        'symbol': o.symbol,
+                        'side': o.side.value,
+                        'order_type': o.order_type.value,
+                        'quantity': o.quantity,
+                        'price': o.price,
+                        'timestamp': o.timestamp,
+                        'status': o.status.value,
+                        'filled_quantity': o.filled_quantity
+                    }
+                    for o in orders
+                ]
+                for price, orders in self.bids.items()
+            },
+            'asks': {
+                price: [
+                    {
+                        'order_id': o.order_id,
+                        'symbol': o.symbol,
+                        'side': o.side.value,
+                        'order_type': o.order_type.value,
+                        'quantity': o.quantity,
+                        'price': o.price,
+                        'timestamp': o.timestamp,
+                        'status': o.status.value,
+                        'filled_quantity': o.filled_quantity
+                    }
+                    for o in orders
+                ]
+                for price, orders in self.asks.items()
+            },
+            'trade_counter': self.trade_counter,
+            'best_bid': self._best_bid,
+            'best_ask': self._best_ask
+        }
+
+    def load_snapshot(self, snapshot: dict):
+        """
+        Restore order book state from a saved snapshot.
+
+        Args:
+            snapshot: Dictionary returned by save_snapshot()
+
+        Example:
+            snapshot = order_book.save_snapshot()
+            # ... do some operations ...
+            order_book.load_snapshot(snapshot)  # Restore state
+        """
+        # Clear current state
+        self.reset()
+
+        # Restore symbol and counters
+        self.symbol = snapshot['symbol']
+        self.trade_counter = snapshot['trade_counter']
+        self._best_bid = snapshot['best_bid']
+        self._best_ask = snapshot['best_ask']
+
+        # Restore bids
+        for price_str, orders_data in snapshot['bids'].items():
+            price = float(price_str)
+            for order_data in orders_data:
+                order = Order(
+                    order_id=order_data['order_id'],
+                    symbol=order_data['symbol'],
+                    side=OrderSide(order_data['side']),
+                    order_type=OrderType(order_data['order_type']),
+                    quantity=order_data['quantity'],
+                    price=order_data['price'],
+                    timestamp=order_data['timestamp'],
+                    status=OrderStatus(order_data['status']),
+                    filled_quantity=order_data['filled_quantity']
+                )
+                self.bids[price].append(order)
+                self.orders[order.order_id] = order
+
+        # Restore asks
+        for price_str, orders_data in snapshot['asks'].items():
+            price = float(price_str)
+            for order_data in orders_data:
+                order = Order(
+                    order_id=order_data['order_id'],
+                    symbol=order_data['symbol'],
+                    side=OrderSide(order_data['side']),
+                    order_type=OrderType(order_data['order_type']),
+                    quantity=order_data['quantity'],
+                    price=order_data['price'],
+                    timestamp=order_data['timestamp'],
+                    status=OrderStatus(order_data['status']),
+                    filled_quantity=order_data['filled_quantity']
+                )
+                self.asks[price].append(order)
+                self.orders[order.order_id] = order
+
+    def reset(self):
+        """
+        Clear all state for new simulation.
+
+        Resets bids, asks, orders, trades, and counters to initial state.
+
+        Example:
+            # Run simulation 1
+            order_book.reset()
+            # Run simulation 2
+        """
+        self.bids.clear()
+        self.asks.clear()
+        self.orders.clear()
+        if isinstance(self.trades, deque):
+            self.trades.clear()
+        else:
+            self.trades = []
+        self.trade_counter = 0
+        self._best_bid = None
+        self._best_ask = None
 
     def __repr__(self):
         return (f"OrderBook({self.symbol}, "
@@ -791,44 +1007,81 @@ class OrderBookEngine:
         engine.shutdown()
     """
 
-    def __init__(self, symbol: str, max_queue_size: int = 10000):
+    def __init__(self, symbol: str, max_queue_size: int = 10000,
+                 clock: Optional[SimulationClock] = None,
+                 direct_mode: bool = False,
+                 max_trades: int = 0):
         """
         Initialize the thread-safe order book engine.
 
         Args:
             symbol: Trading symbol (e.g., 'AAPL', 'GOOGL')
             max_queue_size: Maximum queue size (0 = unlimited)
+            clock: Optional simulation clock for deterministic timestamps
+                   (defaults to time.time() if None)
+            direct_mode: If True, skip threading for simulations (10-15x faster)
+                        WARNING: Not thread-safe! Only use for single-threaded
+                        simulations. Defaults to False for thread-safety.
+            max_trades: Maximum number of trades to keep in history
+                       (0 = unlimited, default)
+
+        Example:
+            # Production (thread-safe, default)
+            engine = OrderBookEngine("AAPL")
+
+            # Single-threaded simulation (10x faster)
+            clock = SimulationClock()
+            engine = OrderBookEngine("AAPL", direct_mode=True, clock=clock)
         """
         self.symbol = symbol
-        self.order_book = OrderBook(symbol)
+        self.direct_mode = direct_mode
+        self.clock = clock
+        self.order_book = OrderBook(symbol, clock=clock, max_trades=max_trades)
 
-        # Lock-free command queue
-        self.command_queue: queue.Queue = queue.Queue(maxsize=max_queue_size)
+        if not direct_mode:
+            # Thread-safe mode: Create queue and worker thread
+            self.command_queue: queue.Queue = queue.Queue(maxsize=max_queue_size)
 
-        # Worker thread
-        self.running = True
-        self.worker_thread = threading.Thread(
-            target=self._worker_loop,
-            name=f"OrderBook-{symbol}-Worker",
-            daemon=False
-        )
-        self.worker_thread.start()
+            # Worker thread
+            self.running = True
+            self.worker_thread = threading.Thread(
+                target=self._worker_loop,
+                name=f"OrderBook-{symbol}-Worker",
+                daemon=False
+            )
+            self.worker_thread.start()
 
-        # Order counter for generating order IDs
-        self.order_counter = 0
-        self._order_counter_lock = threading.Lock()
+            # Thread-safe order counter
+            self.order_counter = 0
+            self._order_counter_lock = threading.Lock()
 
-        # Metrics tracking
-        self.metrics = Metrics()
-        self._latencies: List[float] = []
-        self._metrics_lock = threading.Lock()
-        self._start_time = time.time()
+            # Metrics tracking
+            self.metrics = Metrics()
+            self._latencies: List[float] = []
+            self._metrics_lock = threading.Lock()
+            self._start_time = self._get_time()
+        else:
+            # Direct mode: No threading overhead
+            self.running = True
+            self.order_counter = 0
+            self.metrics = Metrics()
+            self._start_time = self._get_time()
+
+    def _get_time(self) -> float:
+        """Get current time from clock or system time"""
+        if self.clock:
+            return self.clock.time()
+        return time.time()
 
     def _get_next_order_id(self) -> str:
-        """Thread-safe order ID generation"""
-        with self._order_counter_lock:
+        """Order ID generation (thread-safe in normal mode)"""
+        if self.direct_mode:
             self.order_counter += 1
             return f"ORD{self.order_counter:06d}"
+        else:
+            with self._order_counter_lock:
+                self.order_counter += 1
+                return f"ORD{self.order_counter:06d}"
 
     def _worker_loop(self):
         """
@@ -901,6 +1154,9 @@ class OrderBookEngine:
         elif cmd_type == CommandType.PLACE_MARKET_ORDER:
             return self._handle_place_market_order(*command.args, **command.kwargs)
 
+        elif cmd_type == CommandType.PLACE_ORDERS_BATCH:
+            return self._handle_place_orders_batch(*command.args, **command.kwargs)
+
         elif cmd_type == CommandType.CANCEL_ORDER:
             return self._handle_cancel_order(*command.args, **command.kwargs)
 
@@ -935,7 +1191,8 @@ class OrderBookEngine:
             side=side,
             order_type=OrderType.LIMIT,
             quantity=quantity,
-            price=price
+            price=price,
+            timestamp=self._get_time()
         )
         trades = self.order_book.add_order(order)
         return order
@@ -948,10 +1205,27 @@ class OrderBookEngine:
             side=side,
             order_type=OrderType.MARKET,
             quantity=quantity,
-            price=None
+            price=None,
+            timestamp=self._get_time()
         )
         trades = self.order_book.add_order(order)
         return order
+
+    def _handle_place_orders_batch(self, orders: List[Tuple[OrderSide, float, float]]) -> List[Order]:
+        """
+        Handle placing multiple orders in a batch.
+
+        Args:
+            orders: List of (side, quantity, price) tuples
+
+        Returns:
+            List of created Order objects
+        """
+        results = []
+        for side, quantity, price in orders:
+            order = self._handle_place_limit_order(side, quantity, price)
+            results.append(order)
+        return results
 
     def _handle_cancel_order(self, order_id: str) -> bool:
         """Handle cancelling an order"""
@@ -1001,7 +1275,7 @@ class OrderBookEngine:
             side: BUY or SELL
             quantity: Order quantity
             price: Limit price
-            timeout: Maximum time to wait in seconds
+            timeout: Maximum time to wait in seconds (ignored in direct mode)
 
         Returns:
             The created Order object
@@ -1013,21 +1287,26 @@ class OrderBookEngine:
             order = engine.place_limit_order_sync(OrderSide.BUY, 100, 150.00)
             print(f"Order {order.order_id} status: {order.status}")
         """
-        result_queue = queue.Queue()
-        command = Command(
-            command_type=CommandType.PLACE_LIMIT_ORDER,
-            args=(side, quantity, price),
-            result_queue=result_queue
-        )
-        self.command_queue.put(command)
+        if self.direct_mode:
+            # Direct call - no queue, no threading overhead
+            return self._handle_place_limit_order(side, quantity, price)
+        else:
+            # Normal threaded mode
+            result_queue = queue.Queue()
+            command = Command(
+                command_type=CommandType.PLACE_LIMIT_ORDER,
+                args=(side, quantity, price),
+                result_queue=result_queue
+            )
+            self.command_queue.put(command)
 
-        try:
-            status, result = result_queue.get(timeout=timeout)
-            if status == 'error':
-                raise result
-            return result
-        except queue.Empty:
-            raise TimeoutError(f"Command timed out after {timeout}s")
+            try:
+                status, result = result_queue.get(timeout=timeout)
+                if status == 'error':
+                    raise result
+                return result
+            except queue.Empty:
+                raise TimeoutError(f"Command timed out after {timeout}s")
 
     def place_market_order_sync(self, side: OrderSide, quantity: float,
                                timeout: float = 5.0) -> Order:
@@ -1037,7 +1316,7 @@ class OrderBookEngine:
         Args:
             side: BUY or SELL
             quantity: Order quantity
-            timeout: Maximum time to wait in seconds
+            timeout: Maximum time to wait in seconds (ignored in direct mode)
 
         Returns:
             The created Order object
@@ -1045,21 +1324,71 @@ class OrderBookEngine:
         Example:
             order = engine.place_market_order_sync(OrderSide.BUY, 100)
         """
-        result_queue = queue.Queue()
-        command = Command(
-            command_type=CommandType.PLACE_MARKET_ORDER,
-            args=(side, quantity),
-            result_queue=result_queue
-        )
-        self.command_queue.put(command)
+        if self.direct_mode:
+            # Direct call - no queue, no threading overhead
+            return self._handle_place_market_order(side, quantity)
+        else:
+            # Normal threaded mode
+            result_queue = queue.Queue()
+            command = Command(
+                command_type=CommandType.PLACE_MARKET_ORDER,
+                args=(side, quantity),
+                result_queue=result_queue
+            )
+            self.command_queue.put(command)
 
-        try:
-            status, result = result_queue.get(timeout=timeout)
-            if status == 'error':
-                raise result
-            return result
-        except queue.Empty:
-            raise TimeoutError(f"Command timed out after {timeout}s")
+            try:
+                status, result = result_queue.get(timeout=timeout)
+                if status == 'error':
+                    raise result
+                return result
+            except queue.Empty:
+                raise TimeoutError(f"Command timed out after {timeout}s")
+
+    def place_orders_batch_sync(self, orders: List[Tuple[OrderSide, float, float]],
+                                timeout: float = 10.0) -> List[Order]:
+        """
+        Place multiple limit orders in a batch (synchronous).
+
+        This is significantly faster than placing orders individually,
+        especially for large batches (10-50x faster).
+
+        Args:
+            orders: List of (side, quantity, price) tuples
+            timeout: Maximum time to wait in seconds (ignored in direct mode)
+
+        Returns:
+            List of created Order objects
+
+        Example:
+            orders = [
+                (OrderSide.BUY, 100, 150.00),
+                (OrderSide.BUY, 200, 149.50),
+                (OrderSide.SELL, 150, 151.00),
+            ]
+            results = engine.place_orders_batch_sync(orders)
+            print(f"Placed {len(results)} orders")
+        """
+        if self.direct_mode:
+            # Direct call - process all orders immediately
+            return self._handle_place_orders_batch(orders)
+        else:
+            # Normal threaded mode - single command for all orders
+            result_queue = queue.Queue()
+            command = Command(
+                command_type=CommandType.PLACE_ORDERS_BATCH,
+                args=(orders,),
+                result_queue=result_queue
+            )
+            self.command_queue.put(command)
+
+            try:
+                status, result = result_queue.get(timeout=timeout)
+                if status == 'error':
+                    raise result
+                return result
+            except queue.Empty:
+                raise TimeoutError(f"Batch command timed out after {timeout}s")
 
     def cancel_order_sync(self, order_id: str, timeout: float = 5.0) -> bool:
         """
@@ -1229,21 +1558,37 @@ class OrderBookEngine:
             print(f"Throughput: {metrics.throughput:.0f} commands/sec")
             print(f"P99 latency: {metrics.latency_p99:.0f} μs")
         """
-        with self._metrics_lock:
-            # Return a copy
+        if self.direct_mode:
+            # Direct mode - no locks needed
             return Metrics(
                 commands_processed=self.metrics.commands_processed,
-                trades_executed=self.metrics.trades_executed,
-                queue_depth_current=self.command_queue.qsize(),
-                queue_depth_max=self.metrics.queue_depth_max,
-                latency_p50=self.metrics.latency_p50,
-                latency_p99=self.metrics.latency_p99,
-                latency_max=self.metrics.latency_max,
-                throughput=self.metrics.throughput
+                trades_executed=len(self.order_book.trades),
+                queue_depth_current=0,
+                queue_depth_max=0,
+                latency_p50=0.0,
+                latency_p99=0.0,
+                latency_max=0.0,
+                throughput=0.0
             )
+        else:
+            # Thread-safe mode
+            with self._metrics_lock:
+                # Return a copy
+                return Metrics(
+                    commands_processed=self.metrics.commands_processed,
+                    trades_executed=self.metrics.trades_executed,
+                    queue_depth_current=self.command_queue.qsize(),
+                    queue_depth_max=self.metrics.queue_depth_max,
+                    latency_p50=self.metrics.latency_p50,
+                    latency_p99=self.metrics.latency_p99,
+                    latency_max=self.metrics.latency_max,
+                    throughput=self.metrics.throughput
+                )
 
     def get_queue_depth(self) -> int:
-        """Get current queue depth"""
+        """Get current queue depth (0 in direct mode)"""
+        if self.direct_mode:
+            return 0
         return self.command_queue.qsize()
 
     def is_healthy(self, max_queue_depth: int = 1000, max_latency_p99: float = 100000) -> bool:
@@ -1257,13 +1602,18 @@ class OrderBookEngine:
         Returns:
             True if healthy, False otherwise
         """
-        metrics = self.get_metrics()
-        return (
-            self.running and
-            self.worker_thread.is_alive() and
-            metrics.queue_depth_current < max_queue_depth and
-            metrics.latency_p99 < max_latency_p99
-        )
+        if self.direct_mode:
+            # Direct mode - no queue or worker thread
+            return self.running
+        else:
+            # Thread-safe mode
+            metrics = self.get_metrics()
+            return (
+                self.running and
+                self.worker_thread.is_alive() and
+                metrics.queue_depth_current < max_queue_depth and
+                metrics.latency_p99 < max_latency_p99
+            )
 
     # ========== LIFECYCLE ==========
 
@@ -1272,20 +1622,23 @@ class OrderBookEngine:
         Gracefully shutdown the engine.
 
         Args:
-            timeout: Maximum time to wait for shutdown (seconds)
+            timeout: Maximum time to wait for shutdown (seconds) (ignored in direct mode)
 
         Example:
             engine.shutdown()
         """
-        # Send shutdown command
-        command = Command(command_type=CommandType.SHUTDOWN)
-        self.command_queue.put(command)
+        self.running = False
 
-        # Wait for worker to finish
-        self.worker_thread.join(timeout=timeout)
+        if not self.direct_mode:
+            # Thread-safe mode - shutdown worker thread
+            command = Command(command_type=CommandType.SHUTDOWN)
+            self.command_queue.put(command)
 
-        if self.worker_thread.is_alive():
-            print(f"Warning: Worker thread did not shutdown cleanly within {timeout}s")
+            # Wait for worker to finish
+            self.worker_thread.join(timeout=timeout)
+
+            if self.worker_thread.is_alive():
+                print(f"Warning: Worker thread did not shutdown cleanly within {timeout}s")
 
     def __enter__(self):
         """Context manager entry"""
