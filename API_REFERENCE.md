@@ -1,21 +1,66 @@
-# Order Book API Reference
+# 📖 Order Book API Reference
 
 Complete API reference for the thread-safe order book system.
+
+[![Python](https://img.shields.io/badge/python-3.7+-blue.svg)](https://www.python.org/downloads/)
+[![NumPy](https://img.shields.io/badge/numpy-required-orange.svg)](https://numpy.org/)
+[![Thread-Safe](https://img.shields.io/badge/thread--safe-yes-green.svg)](API_REFERENCE.md)
+
+**📚 Other Documentation:**
+- [← Back to README](README.md)
+- [Usage Guide](THREAD_SAFE_USAGE.md)
+- [Examples](example.py)
 
 ---
 
 ## Table of Contents
 
+### Core Classes
 1. [OrderBookEngine](#orderbookengine) - Single-symbol thread-safe order book
+   - [Constructor](#constructor)
+   - [Synchronous API](#synchronous-api-blocking)
+   - [Asynchronous API](#asynchronous-api-non-blocking)
+   - [Monitoring & Utility](#monitoring--utility-methods)
 2. [MultiSymbolOrderBookEngine](#multisymbolorderbookengine) - Multi-symbol trading
+
+### Data Types
 3. [Data Classes](#data-classes) - Order, Trade, Metrics
 4. [Enums](#enums) - OrderSide, OrderType, OrderStatus, CommandType
+
+### Reference
+5. [Quick Reference](#quick-reference) - Common operations
+6. [Error Handling](#error-handling) - Exceptions and examples
+7. [Performance](#performance-characteristics) - Time complexity and latency
 
 ---
 
 ## OrderBookEngine
 
 Thread-safe order book for a single symbol using lock-free queue architecture.
+
+### Method Summary
+
+| Category | Method | Description |
+|----------|--------|-------------|
+| **Sync API** | `place_limit_order_sync()` | Place limit order (blocking) |
+| | `place_market_order_sync()` | Place market order (blocking) |
+| | `cancel_order_sync()` | Cancel order (blocking) |
+| | `get_best_bid_sync()` | Get best bid price (blocking) |
+| | `get_best_ask_sync()` | Get best ask price (blocking) |
+| | `get_depth_sync()` | Get market depth (blocking) |
+| | `get_snapshot_sync()` | Get order book snapshot (blocking) |
+| **Async API** | `place_limit_order_async()` | Place limit order (non-blocking) |
+| | `place_market_order_async()` | Place market order (non-blocking) |
+| | `cancel_order_async()` | Cancel order (non-blocking) |
+| | `get_depth_async()` | Get market depth (non-blocking) |
+| **Monitoring** | `get_metrics()` | Get performance metrics |
+| | `get_queue_depth()` | Get current queue depth |
+| | `is_healthy()` | Check engine health |
+| **Lifecycle** | `shutdown()` | Gracefully shutdown engine |
+
+[Jump to detailed documentation ↓](#constructor)
+
+---
 
 ### Constructor
 
