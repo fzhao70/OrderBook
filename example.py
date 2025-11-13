@@ -1,320 +1,372 @@
 """
-Example usage of the Simple Order Book system.
+Thread-Safe Order Book Examples
 
-This script demonstrates:
-1. Creating order books for multiple instruments
-2. Placing limit and market orders
-3. Order matching and trade execution
-4. Market data queries
-5. Order cancellation
+This script demonstrates the thread-safe OrderBookEngine with various use cases:
+1. Multi-threaded order submission
+2. Synchronous and asynchronous APIs
+3. Market data queries
+4. Performance monitoring
+5. Error handling
+6. Multi-symbol trading
 """
 
-import numpy as np
-from orderbook import (
-    OrderBookManager, OrderSide, OrderType,
-    Order, Trade
+import threading
+import time
+import random
+from orderbook_threadsafe import (
+    OrderBookEngine,
+    MultiSymbolOrderBookEngine,
+    OrderSide,
+    OrderStatus
 )
 
 
 def print_section(title):
     """Print a section header"""
-    print(f"\n{'='*60}")
-    print(f"{title:^60}")
-    print('='*60)
-
-
-def print_order_book(order_book):
-    """Pretty print an order book"""
-    print(f"\n📊 Order Book: {order_book.symbol}")
-    print("-" * 60)
-
-    bids, asks = order_book.get_depth(levels=5)
-
-    # Print asks (sell orders) in reverse order
-    if len(asks) > 0:
-        print("\n  ASKS (Sell Orders)")
-        print("  " + "-" * 30)
-        for price, qty in reversed(asks):
-            print(f"  {qty:8.2f} @ ${price:8.2f}")
-
-    # Print spread
-    spread = order_book.get_spread()
-    if spread is not None:
-        print(f"\n  {'SPREAD':^30}")
-        print(f"  {f'${spread:.2f}':^30}")
-
-    # Print bids (buy orders)
-    if len(bids) > 0:
-        print("\n  BIDS (Buy Orders)")
-        print("  " + "-" * 30)
-        for price, qty in bids:
-            print(f"  {qty:8.2f} @ ${price:8.2f}")
-
-    print()
-
-
-def example_1_basic_limit_orders():
-    """Example 1: Basic limit order matching"""
-    print_section("Example 1: Basic Limit Order Matching")
-
-    manager = OrderBookManager()
-
-    # Create order book for AAPL
-    print("\n1️⃣  Creating order book for AAPL...")
-    manager.create_order_book("AAPL")
-
-    # Place some buy orders
-    print("\n2️⃣  Placing buy orders...")
-    order1 = manager.place_limit_order("AAPL", OrderSide.BUY, 100, 150.00)
-    order2 = manager.place_limit_order("AAPL", OrderSide.BUY, 200, 149.50)
-    order3 = manager.place_limit_order("AAPL", OrderSide.BUY, 150, 149.00)
-    print(f"   - Buy 100 @ $150.00 - Order ID: {order1.order_id}")
-    print(f"   - Buy 200 @ $149.50 - Order ID: {order2.order_id}")
-    print(f"   - Buy 150 @ $149.00 - Order ID: {order3.order_id}")
-
-    # Place some sell orders
-    print("\n3️⃣  Placing sell orders...")
-    order4 = manager.place_limit_order("AAPL", OrderSide.SELL, 100, 151.00)
-    order5 = manager.place_limit_order("AAPL", OrderSide.SELL, 150, 151.50)
-    order6 = manager.place_limit_order("AAPL", OrderSide.SELL, 200, 152.00)
-    print(f"   - Sell 100 @ $151.00 - Order ID: {order4.order_id}")
-    print(f"   - Sell 150 @ $151.50 - Order ID: {order5.order_id}")
-    print(f"   - Sell 200 @ $152.00 - Order ID: {order6.order_id}")
-
-    # Display order book
-    aapl_book = manager.get_order_book("AAPL")
-    print_order_book(aapl_book)
-
-    # Place a sell order that crosses the spread
-    print("\n4️⃣  Placing aggressive sell order that matches...")
-    order7 = manager.place_limit_order("AAPL", OrderSide.SELL, 150, 150.00)
-    print(f"   - Sell 150 @ $150.00 - Order ID: {order7.order_id}")
-    print(f"   - Order Status: {order7.status.value}")
-    print(f"   - Filled Quantity: {order7.filled_quantity}")
-
-    # Show trades
-    trades = manager.get_all_trades("AAPL")
-    print(f"\n5️⃣  Trades Executed: {len(trades)}")
-    for trade in trades:
-        print(f"   - {trade}")
-
-    # Display updated order book
-    print_order_book(aapl_book)
-
-
-def example_2_market_orders():
-    """Example 2: Market order execution"""
-    print_section("Example 2: Market Order Execution")
-
-    manager = OrderBookManager()
-    manager.create_order_book("TSLA")
-
-    # Build the order book
-    print("\n1️⃣  Building order book for TSLA...")
-
-    # Add sell orders
-    manager.place_limit_order("TSLA", OrderSide.SELL, 50, 250.00)
-    manager.place_limit_order("TSLA", OrderSide.SELL, 100, 251.00)
-    manager.place_limit_order("TSLA", OrderSide.SELL, 75, 252.00)
-
-    # Add buy orders
-    manager.place_limit_order("TSLA", OrderSide.BUY, 60, 248.00)
-    manager.place_limit_order("TSLA", OrderSide.BUY, 100, 247.00)
-
-    tsla_book = manager.get_order_book("TSLA")
-    print_order_book(tsla_book)
-
-    # Execute market buy order
-    print("\n2️⃣  Executing market buy order for 120 shares...")
-    market_order = manager.place_market_order("TSLA", OrderSide.BUY, 120)
-    print(f"   - Order ID: {market_order.order_id}")
-    print(f"   - Status: {market_order.status.value}")
-    print(f"   - Filled: {market_order.filled_quantity}/{market_order.quantity}")
+    print(f"\n{'='*70}")
+    print(f"{title:^70}")
+    print('='*70)
 
-    # Show executed trades
-    trades = manager.get_all_trades("TSLA")
-    print(f"\n3️⃣  Trades Executed:")
-    for trade in trades:
-        print(f"   - {trade.quantity} shares @ ${trade.price}")
 
-    # Display updated order book
-    print_order_book(tsla_book)
+def example_1_basic_sync():
+    """Example 1: Basic synchronous usage"""
+    print_section("Example 1: Basic Synchronous API")
 
+    with OrderBookEngine("AAPL") as engine:
+        print("\n1️⃣  Placing limit orders...")
+
+        # Place buy orders
+        buy1 = engine.place_limit_order_sync(OrderSide.BUY, 100, 150.00)
+        buy2 = engine.place_limit_order_sync(OrderSide.BUY, 200, 149.50)
+        print(f"   Buy orders placed: {buy1.order_id}, {buy2.order_id}")
 
-def example_3_multiple_instruments():
-    """Example 3: Trading multiple instruments"""
-    print_section("Example 3: Multiple Instruments (Stocks & Derivatives)")
+        # Place sell orders
+        sell1 = engine.place_limit_order_sync(OrderSide.SELL, 100, 151.00)
+        sell2 = engine.place_limit_order_sync(OrderSide.SELL, 150, 151.50)
+        print(f"   Sell orders placed: {sell1.order_id}, {sell2.order_id}")
+
+        print("\n2️⃣  Getting market data...")
+        best_bid = engine.get_best_bid_sync()
+        best_ask = engine.get_best_ask_sync()
+        print(f"   Best Bid: ${best_bid}")
+        print(f"   Best Ask: ${best_ask}")
+        print(f"   Spread: ${best_ask - best_bid}")
+
+        print("\n3️⃣  Placing crossing order...")
+        # This will match
+        buy3 = engine.place_limit_order_sync(OrderSide.BUY, 50, 151.00)
+        print(f"   Order {buy3.order_id}:")
+        print(f"   - Status: {buy3.status.value}")
+        print(f"   - Filled: {buy3.filled_quantity}/{buy3.quantity}")
 
-    manager = OrderBookManager()
+        print("\n4️⃣  Market depth...")
+        bids, asks = engine.get_depth_sync(levels=5)
+        print(f"   Bids: {len(bids)} levels")
+        print(f"   Asks: {len(asks)} levels")
 
-    # Create order books for different instruments
-    instruments = ["AAPL", "GOOGL", "SPY_CALL_450", "QQQ_PUT_380"]
+        # Engine auto-shuts down when exiting context
 
-    print("\n1️⃣  Creating order books for multiple instruments...")
-    for symbol in instruments:
-        manager.create_order_book(symbol)
-        print(f"   - Created order book for {symbol}")
 
-    # Place orders across different instruments
-    print("\n2️⃣  Placing orders across instruments...")
+def example_2_async_callbacks():
+    """Example 2: Asynchronous callbacks"""
+    print_section("Example 2: Asynchronous Callbacks")
 
-    # AAPL
-    manager.place_limit_order("AAPL", OrderSide.BUY, 100, 150.00)
-    manager.place_limit_order("AAPL", OrderSide.SELL, 100, 151.00)
+    engine = OrderBookEngine("GOOGL")
 
-    # GOOGL
-    manager.place_limit_order("GOOGL", OrderSide.BUY, 50, 140.00)
-    manager.place_limit_order("GOOGL", OrderSide.SELL, 50, 142.00)
+    print("\n1️⃣  Placing orders with callbacks...")
 
-    # SPY CALL option
-    manager.place_limit_order("SPY_CALL_450", OrderSide.BUY, 10, 5.50)
-    manager.place_limit_order("SPY_CALL_450", OrderSide.SELL, 10, 5.75)
+    results = {'placed': 0, 'filled': 0}
 
-    # QQQ PUT option
-    manager.place_limit_order("QQQ_PUT_380", OrderSide.BUY, 20, 3.20)
-    manager.place_limit_order("QQQ_PUT_380", OrderSide.SELL, 20, 3.40)
+    def on_order_placed(order):
+        """Callback for async orders"""
+        results['placed'] += 1
+        if order.status == OrderStatus.FILLED:
+            results['filled'] += 1
+        print(f"   ✓ Order {order.order_id}: {order.status.value}, "
+              f"filled {order.filled_quantity}/{order.quantity}")
 
-    # Execute some crossing orders
-    print("\n3️⃣  Executing crossing orders...")
-    manager.place_limit_order("AAPL", OrderSide.BUY, 50, 151.00)
-    manager.place_limit_order("SPY_CALL_450", OrderSide.SELL, 5, 5.50)
+    # Place orders asynchronously
+    for i in range(5):
+        price = 140.00 + i * 0.50
+        engine.place_limit_order_async(
+            OrderSide.BUY if i % 2 == 0 else OrderSide.SELL,
+            100,
+            price,
+            callback=on_order_placed
+        )
 
-    # Get market summary
-    print("\n4️⃣  Market Summary:")
-    summary = manager.get_market_summary()
-    for symbol, data in summary.items():
-        print(f"\n   {symbol}:")
-        print(f"   - Best Bid: ${data['best_bid']}")
-        print(f"   - Best Ask: ${data['best_ask']}")
-        print(f"   - Spread: ${data['spread']}")
-        print(f"   - Total Trades: {data['total_trades']}")
+    # Wait for processing
+    time.sleep(0.5)
 
-    # Portfolio statistics
-    print("\n5️⃣  Portfolio Statistics:")
-    stats = manager.get_portfolio_stats()
-    print(f"   - Total Instruments: {stats['total_instruments']}")
-    print(f"   - Total Orders: {stats['total_orders']}")
-    print(f"   - Total Trades: {stats['total_trades']}")
-    print(f"   - Orders by Status: {stats['orders_by_status']}")
+    print(f"\n2️⃣  Results: {results['placed']} placed, {results['filled']} filled")
 
+    # Cleanup
+    engine.shutdown()
 
-def example_4_order_cancellation():
-    """Example 4: Order cancellation"""
-    print_section("Example 4: Order Cancellation")
 
-    manager = OrderBookManager()
-    manager.create_order_book("MSFT")
+def example_3_multi_threaded():
+    """Example 3: Multi-threaded order submission"""
+    print_section("Example 3: Multi-Threaded Trading")
 
-    print("\n1️⃣  Placing orders...")
-    order1 = manager.place_limit_order("MSFT", OrderSide.BUY, 100, 380.00)
-    order2 = manager.place_limit_order("MSFT", OrderSide.BUY, 200, 379.50)
-    order3 = manager.place_limit_order("MSFT", OrderSide.SELL, 150, 381.00)
+    engine = OrderBookEngine("TSLA")
 
-    print(f"   - Order 1: {order1.order_id} - Buy 100 @ $380.00")
-    print(f"   - Order 2: {order2.order_id} - Buy 200 @ $379.50")
-    print(f"   - Order 3: {order3.order_id} - Sell 150 @ $381.00")
+    print("\n1️⃣  Launching 10 trader threads...")
 
-    msft_book = manager.get_order_book("MSFT")
-    print_order_book(msft_book)
+    def trader_thread(thread_id, num_orders):
+        """Each thread places orders independently"""
+        orders_placed = 0
+        for i in range(num_orders):
+            side = OrderSide.BUY if i % 2 == 0 else OrderSide.SELL
+            price = 250.00 + (thread_id * 0.10) + (i * 0.05)
 
-    print(f"\n2️⃣  Cancelling order {order2.order_id}...")
-    success = manager.cancel_order(order2.order_id)
-    print(f"   - Cancellation {'successful' if success else 'failed'}")
-    print(f"   - Order Status: {order2.status.value}")
+            try:
+                order = engine.place_limit_order_sync(side, 50, price, timeout=2.0)
+                orders_placed += 1
+            except Exception as e:
+                print(f"   Thread {thread_id} error: {e}")
 
-    print_order_book(msft_book)
+        print(f"   Thread {thread_id}: Placed {orders_placed} orders")
 
+    # Launch threads
+    start_time = time.time()
+    threads = []
+    for i in range(10):
+        t = threading.Thread(target=trader_thread, args=(i, 100))
+        t.start()
+        threads.append(t)
 
-def example_5_depth_analysis():
-    """Example 5: Market depth analysis with NumPy"""
-    print_section("Example 5: Market Depth Analysis")
+    # Wait for completion
+    for t in threads:
+        t.join()
 
-    manager = OrderBookManager()
-    manager.create_order_book("NVDA")
+    elapsed = time.time() - start_time
 
-    # Build a deeper order book
-    print("\n1️⃣  Building order book with multiple price levels...")
+    print(f"\n2️⃣  Performance metrics...")
+    metrics = engine.get_metrics()
+    print(f"   Commands processed: {metrics.commands_processed}")
+    print(f"   Elapsed time: {elapsed:.2f}s")
+    print(f"   Throughput: {metrics.throughput:.0f} orders/sec")
+    print(f"   P50 latency: {metrics.latency_p50:.0f} μs")
+    print(f"   P99 latency: {metrics.latency_p99:.0f} μs")
+    print(f"   Max queue depth: {metrics.queue_depth_max}")
 
-    # Sell orders
-    prices_asks = np.array([300.0, 300.5, 301.0, 301.5, 302.0, 302.5, 303.0])
-    quantities_asks = np.array([100, 150, 200, 120, 180, 90, 150])
+    engine.shutdown()
 
-    for price, qty in zip(prices_asks, quantities_asks):
-        manager.place_limit_order("NVDA", OrderSide.SELL, float(qty), float(price))
 
-    # Buy orders
-    prices_bids = np.array([299.0, 298.5, 298.0, 297.5, 297.0, 296.5, 296.0])
-    quantities_bids = np.array([120, 100, 180, 150, 200, 110, 160])
+def example_4_market_orders():
+    """Example 4: Market orders with async API"""
+    print_section("Example 4: Market Orders")
 
-    for price, qty in zip(prices_bids, quantities_bids):
-        manager.place_limit_order("NVDA", OrderSide.BUY, float(qty), float(price))
+    engine = OrderBookEngine("NVDA")
 
-    nvda_book = manager.get_order_book("NVDA")
-    print_order_book(nvda_book)
+    print("\n1️⃣  Building order book...")
 
-    # Analyze depth
-    print("\n2️⃣  Depth Analysis:")
-    bids, asks = nvda_book.get_depth(levels=10)
+    # Place limit sells
+    for i in range(5):
+        price = 300.00 + i * 0.50
+        engine.place_limit_order_sync(OrderSide.SELL, 100, price)
 
-    print(f"\n   Total Bid Volume (top 5): {np.sum(bids[:5, 1]):.2f}")
-    print(f"   Total Ask Volume (top 5): {np.sum(asks[:5, 1]):.2f}")
-    print(f"   Average Bid Price (top 5): ${np.mean(bids[:5, 0]):.2f}")
-    print(f"   Average Ask Price (top 5): ${np.mean(asks[:5, 0]):.2f}")
+    print("   Order book built with 5 sell levels")
 
-    # Calculate VWAP (Volume Weighted Average Price)
-    if len(bids) > 0:
-        bid_vwap = np.sum(bids[:, 0] * bids[:, 1]) / np.sum(bids[:, 1])
-        print(f"   Bid VWAP: ${bid_vwap:.2f}")
+    print("\n2️⃣  Executing market buy order...")
 
-    if len(asks) > 0:
-        ask_vwap = np.sum(asks[:, 0] * asks[:, 1]) / np.sum(asks[:, 1])
-        print(f"   Ask VWAP: ${ask_vwap:.2f}")
+    def on_market_order(order):
+        print(f"   Market order executed!")
+        print(f"   - Filled: {order.filled_quantity}/{order.quantity}")
+        print(f"   - Status: {order.status.value}")
 
+    engine.place_market_order_async(OrderSide.BUY, 250, callback=on_market_order)
 
-def example_6_callbacks():
-    """Example 6: Using callbacks for real-time updates"""
-    print_section("Example 6: Real-time Callbacks")
+    # Wait for processing
+    time.sleep(0.2)
 
-    # Define callback functions
-    def on_trade(trade: Trade):
-        print(f"   🔔 TRADE: {trade.symbol} - {trade.quantity} @ ${trade.price}")
+    print("\n3️⃣  Updated market data...")
+    snapshot = engine.get_snapshot_sync()
+    print(f"   Best Ask: ${snapshot['best_ask']}")
+    print(f"   Total Trades: {snapshot['total_trades']}")
 
-    def on_order_update(order: Order):
-        if order.status == order.status.FILLED:
-            print(f"   ✅ ORDER FILLED: {order.order_id} - {order.symbol}")
-        elif order.status == order.status.CANCELLED:
-            print(f"   ❌ ORDER CANCELLED: {order.order_id} - {order.symbol}")
+    engine.shutdown()
 
-    manager = OrderBookManager()
-    manager.on_trade_callback = on_trade
-    manager.on_order_update_callback = on_order_update
 
-    manager.create_order_book("AMD")
+def example_5_monitoring():
+    """Example 5: Performance monitoring"""
+    print_section("Example 5: Performance Monitoring & Health Checks")
 
-    print("\n1️⃣  Placing orders with real-time callbacks...")
+    engine = OrderBookEngine("AMD", max_queue_size=1000)
 
-    # Place limit orders
-    manager.place_limit_order("AMD", OrderSide.BUY, 100, 165.00)
-    manager.place_limit_order("AMD", OrderSide.SELL, 50, 166.00)
+    print("\n1️⃣  Submitting orders and monitoring...")
 
-    # Execute crossing order (will trigger callbacks)
-    print("\n2️⃣  Executing crossing order...")
-    manager.place_limit_order("AMD", OrderSide.BUY, 75, 166.00)
+    for i in range(500):
+        price = 165.00 + random.uniform(-1.0, 1.0)
+        side = random.choice([OrderSide.BUY, OrderSide.SELL])
+        engine.place_limit_order_async(
+            side, 100, price,
+            callback=lambda o: None
+        )
+
+        # Monitor every 100 orders
+        if i % 100 == 0:
+            queue_depth = engine.get_queue_depth()
+            print(f"   Submitted {i} orders, queue depth: {queue_depth}")
+
+    # Wait for queue to drain
+    print("\n2️⃣  Waiting for queue to drain...")
+    while engine.get_queue_depth() > 0:
+        time.sleep(0.1)
+
+    print("\n3️⃣  Final metrics...")
+    metrics = engine.get_metrics()
+    print(f"   {metrics}")
+
+    print("\n4️⃣  Health check...")
+    is_healthy = engine.is_healthy(max_queue_depth=100, max_latency_p99=50000)
+    print(f"   Engine healthy: {is_healthy}")
+
+    engine.shutdown()
+
+
+def example_6_multi_symbol():
+    """Example 6: Multi-symbol trading"""
+    print_section("Example 6: Multi-Symbol Trading")
+
+    engine = MultiSymbolOrderBookEngine()
+
+    print("\n1️⃣  Trading multiple symbols in parallel...")
+
+    symbols = ["AAPL", "GOOGL", "TSLA", "NVDA", "AMD"]
+
+    def trade_symbol(symbol):
+        """Trade a specific symbol"""
+        for i in range(50):
+            side = OrderSide.BUY if i % 2 == 0 else OrderSide.SELL
+            price = 100.00 + random.uniform(0, 10)
+            engine.place_limit_order_sync(symbol, side, 100, price)
+        print(f"   {symbol}: Placed 50 orders")
+
+    # Launch one thread per symbol
+    threads = []
+    for symbol in symbols:
+        t = threading.Thread(target=trade_symbol, args=(symbol,))
+        t.start()
+        threads.append(t)
+
+    for t in threads:
+        t.join()
+
+    print("\n2️⃣  Metrics by symbol...")
+    all_metrics = engine.get_all_metrics()
+    for symbol, metrics in all_metrics.items():
+        print(f"   {symbol:6s}: {metrics.commands_processed} cmds, "
+              f"{metrics.throughput:.0f}/sec")
+
+    print("\n3️⃣  Shutting down all engines...")
+    engine.shutdown_all()
+
+
+def example_7_error_handling():
+    """Example 7: Error handling"""
+    print_section("Example 7: Error Handling")
+
+    engine = OrderBookEngine("MSFT")
+
+    print("\n1️⃣  Testing timeout...")
+    try:
+        # This will succeed (normal timeout)
+        order = engine.place_limit_order_sync(
+            OrderSide.BUY, 100, 380.00,
+            timeout=5.0
+        )
+        print(f"   ✓ Order placed: {order.order_id}")
+    except TimeoutError as e:
+        print(f"   ✗ Timeout: {e}")
+
+    print("\n2️⃣  Testing validation errors...")
+    try:
+        # Invalid quantity
+        order = engine.place_limit_order_sync(
+            OrderSide.BUY, -100, 380.00
+        )
+    except ValueError as e:
+        print(f"   ✓ Caught validation error: {e}")
+
+    try:
+        # Invalid price
+        order = engine.place_limit_order_sync(
+            OrderSide.BUY, 100, 0.00
+        )
+    except ValueError as e:
+        print(f"   ✓ Caught validation error: {e}")
+
+    print("\n3️⃣  Testing callback errors...")
+
+    def buggy_callback(order):
+        raise Exception("Intentional error in callback!")
+
+    # Error in callback should not crash the engine
+    engine.place_limit_order_async(
+        OrderSide.BUY, 100, 380.00,
+        callback=buggy_callback
+    )
+
+    time.sleep(0.2)
+
+    # Engine should still be healthy
+    print(f"   Engine still running: {engine.running}")
+    print(f"   Engine healthy: {engine.is_healthy()}")
+
+    engine.shutdown()
+
+
+def example_8_order_lifecycle():
+    """Example 8: Order lifecycle management"""
+    print_section("Example 8: Order Lifecycle")
+
+    engine = OrderBookEngine("META")
+
+    print("\n1️⃣  Placing and tracking order...")
+
+    order = engine.place_limit_order_sync(OrderSide.BUY, 100, 450.00)
+    print(f"   Order {order.order_id} placed")
+    print(f"   Status: {order.status.value}")
+
+    print("\n2️⃣  Cancelling order...")
+    success = engine.cancel_order_sync(order.order_id)
+    print(f"   Cancelled: {success}")
+    print(f"   New status: {order.status.value}")
+
+    print("\n3️⃣  Trying to cancel again...")
+    success = engine.cancel_order_sync(order.order_id)
+    print(f"   Cancelled: {success} (already cancelled)")
+
+    print("\n4️⃣  Testing filled order cancellation...")
+    # Place orders that will match
+    sell = engine.place_limit_order_sync(OrderSide.SELL, 50, 450.00)
+    buy = engine.place_limit_order_sync(OrderSide.BUY, 50, 450.00)
+
+    print(f"   Buy status: {buy.status.value}")
+
+    # Try to cancel filled order
+    success = engine.cancel_order_sync(buy.order_id)
+    print(f"   Can cancel filled order: {success} (should be False)")
+
+    engine.shutdown()
 
 
 def main():
     """Run all examples"""
-    print("\n" + "="*60)
-    print("Simple Order Book - Examples".center(60))
-    print("="*60)
+    print("\n" + "="*70)
+    print("Thread-Safe Order Book - Examples".center(70))
+    print("="*70)
 
     examples = [
-        example_1_basic_limit_orders,
-        example_2_market_orders,
-        example_3_multiple_instruments,
-        example_4_order_cancellation,
-        example_5_depth_analysis,
-        example_6_callbacks,
+        example_1_basic_sync,
+        example_2_async_callbacks,
+        example_3_multi_threaded,
+        example_4_market_orders,
+        example_5_monitoring,
+        example_6_multi_symbol,
+        example_7_error_handling,
+        example_8_order_lifecycle,
     ]
 
     for i, example in enumerate(examples, 1):
@@ -325,9 +377,9 @@ def main():
             import traceback
             traceback.print_exc()
 
-    print("\n" + "="*60)
-    print("All examples completed!".center(60))
-    print("="*60 + "\n")
+    print("\n" + "="*70)
+    print("All examples completed!".center(70))
+    print("="*70 + "\n")
 
 
 if __name__ == "__main__":
