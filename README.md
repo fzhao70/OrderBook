@@ -2,6 +2,32 @@
 
 A **production-grade thread-safe order book** implementation for trading stocks and derivatives using Python and NumPy. Built with a **lock-free queue architecture** — the same design used by major exchanges like NASDAQ and CME.
 
+## 📚 Documentation
+
+- **[API Reference](API_REFERENCE.md)** - Complete API documentation with all methods and examples
+- **[Usage Guide](THREAD_SAFE_USAGE.md)** - Comprehensive usage guide with advanced examples
+- **[Examples](example.py)** - Working code examples demonstrating all features
+
+## Table of Contents
+
+- [Features](#features)
+- [Quick Start](#quick-start)
+  - [Installation](#installation)
+  - [Basic Usage](#basic-usage)
+  - [Multi-Threaded Trading](#multi-threaded-trading)
+- [Architecture](#architecture)
+- [API Reference](#api-reference)
+- [Performance Monitoring](#performance-monitoring)
+- [Performance](#performance)
+- [Order Types & Features](#order-types--features)
+- [Examples](#examples)
+- [Best Practices](#best-practices)
+- [Project Structure](#project-structure)
+- [Advanced Features](#advanced-features)
+- [When to Use](#when-to-use)
+- [FAQ](#faq)
+- [Summary](#summary)
+
 ## Features
 
 - ✅ **Thread-Safe**: Lock-free queue architecture, zero contention
@@ -90,6 +116,8 @@ Thread N ──┘                                               └──→ Ca
 4. Results returned via callbacks or blocking calls
 
 ## API Reference
+
+> 📖 **Full API Documentation:** See **[API_REFERENCE.md](API_REFERENCE.md)** for complete method signatures, parameters, return types, and detailed examples.
 
 ### Synchronous API (Blocking)
 
@@ -237,21 +265,23 @@ PENDING → PARTIAL → FILLED
 
 ## Examples
 
+> 💻 **Working Examples:** See **[example.py](example.py)** for complete, runnable code demonstrating all features.
+
 Run the comprehensive example suite:
 
 ```bash
 python example.py
 ```
 
-**Included examples:**
-1. Basic synchronous API
-2. Asynchronous callbacks
-3. Multi-threaded trading (10 threads, 1000 orders)
-4. Market orders
-5. Performance monitoring
-6. Multi-symbol trading
-7. Error handling
-8. Order lifecycle management
+**8 Complete Examples:**
+1. **Basic synchronous API** - Place orders, get market data
+2. **Asynchronous callbacks** - Non-blocking operations
+3. **Multi-threaded trading** - 10 threads, 1000 orders
+4. **Market orders** - Execute at best available price
+5. **Performance monitoring** - Metrics and health checks
+6. **Multi-symbol trading** - Trade multiple instruments in parallel
+7. **Error handling** - Validation and timeout handling
+8. **Order lifecycle management** - Place, cancel, track orders
 
 ## Best Practices
 
@@ -293,24 +323,26 @@ python example.py
 
 ```
 OrderBook/
-├── orderbook.py              # Core optimized order book (internal)
-├── orderbook_threadsafe.py   # Thread-safe wrapper (main API)
-├── example.py                # Complete examples
-├── THREAD_SAFE_USAGE.md     # Detailed documentation
-├── requirements.txt          # Dependencies
-└── README.md                 # This file
+├── orderbook.py                 # Core optimized order book (internal)
+├── orderbook_threadsafe.py      # Thread-safe wrapper (main API)
+├── example.py                   # Complete examples
+├── API_REFERENCE.md             # Complete API documentation
+├── THREAD_SAFE_USAGE.md        # Detailed usage guide
+├── requirements.txt             # Dependencies
+└── README.md                    # This file
 ```
 
 ## Advanced Features
 
-See `THREAD_SAFE_USAGE.md` for:
-- Complete API reference
-- Custom callbacks with state
-- Chaining operations
-- Performance tuning
-- Troubleshooting guide
-- Error handling
-- Migration guides
+- **[API Reference](API_REFERENCE.md)** - Complete method signatures, parameters, return types
+- **[Usage Guide](THREAD_SAFE_USAGE.md)** - Detailed guide with:
+  - Custom callbacks with state
+  - Chaining operations
+  - Performance tuning
+  - Troubleshooting guide
+  - Error handling
+  - Migration guides
+  - Best practices
 
 ## When to Use
 
