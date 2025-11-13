@@ -1627,10 +1627,12 @@ class OrderBookEngine:
         Example:
             engine.shutdown()
         """
-        self.running = False
-
-        if not self.direct_mode:
-            # Thread-safe mode - shutdown worker thread
+        if self.direct_mode:
+            # Direct mode - just set flag
+            self.running = False
+        else:
+            # Thread-safe mode - send shutdown command to worker
+            # Worker will process all queued commands before shutting down
             command = Command(command_type=CommandType.SHUTDOWN)
             self.command_queue.put(command)
 
@@ -1639,6 +1641,9 @@ class OrderBookEngine:
 
             if self.worker_thread.is_alive():
                 print(f"Warning: Worker thread did not shutdown cleanly within {timeout}s")
+            else:
+                # Worker shut down cleanly, update flag
+                self.running = False
 
     def __enter__(self):
         """Context manager entry"""
