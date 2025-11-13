@@ -49,7 +49,7 @@ pip install numpy
 ### Basic Usage
 
 ```python
-from orderbook_threadsafe import OrderBookEngine, OrderSide
+from orderbook import OrderBookEngine, OrderSide
 
 # Create thread-safe order book
 with OrderBookEngine("AAPL") as engine:
@@ -71,7 +71,7 @@ with OrderBookEngine("AAPL") as engine:
 
 ```python
 import threading
-from orderbook_threadsafe import OrderBookEngine, OrderSide
+from orderbook import OrderBookEngine, OrderSide
 
 engine = OrderBookEngine("AAPL")
 
@@ -181,7 +181,7 @@ engine.cancel_order_async(
 ### Multi-Symbol Trading
 
 ```python
-from orderbook_threadsafe import MultiSymbolOrderBookEngine, OrderSide
+from orderbook import MultiSymbolOrderBookEngine, OrderSide
 
 # Create multi-symbol engine (one worker thread per symbol)
 engine = MultiSymbolOrderBookEngine()
@@ -323,8 +323,7 @@ python example.py
 
 ```
 OrderBook/
-├── orderbook.py                 # Core optimized order book (internal)
-├── orderbook_threadsafe.py      # Thread-safe wrapper (main API)
+├── orderbook.py                 # Thread-safe order book (main API)
 ├── example.py                   # Complete examples
 ├── API_REFERENCE.md             # Complete API documentation
 ├── THREAD_SAFE_USAGE.md        # Detailed usage guide

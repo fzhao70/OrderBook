@@ -40,7 +40,7 @@ Thread N ──┘                                               └──→ Ca
 ### Installation
 
 ```python
-from orderbook_threadsafe import OrderBookEngine, OrderSide
+from orderbook import OrderBookEngine, OrderSide
 ```
 
 ### Basic Usage (Synchronous API)
@@ -198,7 +198,7 @@ engine.get_depth_async(levels=10, callback=on_depth)
 
 ```python
 import threading
-from orderbook_threadsafe import OrderBookEngine, OrderSide
+from orderbook import OrderBookEngine, OrderSide
 
 engine = OrderBookEngine("AAPL")
 
@@ -250,7 +250,7 @@ P99 latency: 45 μs
 Trade multiple symbols with maximum parallelism (one worker thread per symbol).
 
 ```python
-from orderbook_threadsafe import MultiSymbolOrderBookEngine, OrderSide
+from orderbook import MultiSymbolOrderBookEngine, OrderSide
 
 # Create multi-symbol engine
 engine = MultiSymbolOrderBookEngine()
@@ -588,8 +588,9 @@ engine.is_healthy()  # False
 
 ## Migration from Original OrderBook
 
-### Before (Not Thread-Safe)
+### Before (Legacy Implementation)
 ```python
+# Old two-file structure (deprecated)
 from orderbook import OrderBook, OrderSide
 
 book = OrderBook("AAPL")
@@ -597,9 +598,10 @@ order = Order(order_id="ORD001", ...)
 book.add_order(order)
 ```
 
-### After (Thread-Safe)
+### After (Unified API)
 ```python
-from orderbook_threadsafe import OrderBookEngine, OrderSide
+# New unified orderbook.py
+from orderbook import OrderBookEngine, OrderSide
 
 engine = OrderBookEngine("AAPL")
 order = engine.place_limit_order_sync(OrderSide.BUY, 100, 150.00)

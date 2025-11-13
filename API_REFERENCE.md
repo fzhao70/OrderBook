@@ -806,7 +806,7 @@ class OrderSide(Enum):
 
 **Usage:**
 ```python
-from orderbook_threadsafe import OrderSide
+from orderbook import OrderSide
 
 order = engine.place_limit_order_sync(OrderSide.BUY, 100, 150.00)
 ```
@@ -872,7 +872,7 @@ class CommandType(Enum):
 
 ```python
 # Import
-from orderbook_threadsafe import OrderBookEngine, OrderSide
+from orderbook import OrderBookEngine, OrderSide
 
 # Create engine
 engine = OrderBookEngine("AAPL")

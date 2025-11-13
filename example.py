@@ -13,7 +13,7 @@ This script demonstrates the thread-safe OrderBookEngine with various use cases:
 import threading
 import time
 import random
-from orderbook_threadsafe import (
+from orderbook import (
     OrderBookEngine,
     MultiSymbolOrderBookEngine,
     OrderSide,
